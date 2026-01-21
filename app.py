@@ -28,6 +28,17 @@ app = Flask(__name__)
 print("loading module YOLOv11...")
 model = YOLO('skin-cancer.pt') 
 print("suscess!")
+
+import gc # เพิ่มไว้บนสุด
+
+# ... ในช่วงที่ทำนายผลเสร็จแล้ว ...
+results = model.predict(image)
+# ... ส่งข้อความกลับเสร็จแล้ว ...
+
+# เพิ่ม 2 บรรทัดนี้ท้ายฟังก์ชัน handle_image_message
+del results
+gc.collect() 
+
 # เพิ่ม Route สำหรับหน้าแรก (เพื่อให้ UptimeRobot เช็คได้)
 @app.route("/", methods=['GET'])
 def index():
@@ -125,5 +136,6 @@ def handle_text_message(event):
 if __name__ == "__main__":
 
     app.run(port=5000)
+
 
 
