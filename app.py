@@ -6,11 +6,24 @@ from linebot.models import MessageEvent, TextMessage, TextSendMessage
 from ultralytics import YOLO
 from PIL import Image
 import io
+import os
+from dotenv import load_dotenv # เพิ่มบรรทัดนี้
+
+# สั่งให้โหลดค่าจากไฟล์ .env (ถ้ามี)
+load_dotenv()
+
+# ดึงค่าจากตัวแปรระบบ แทนการเขียนตรงๆ
+channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
+channel_secret = os.getenv('LINE_CHANNEL_SECRET')
+
+# เช็คว่าดึงค่ามาได้จริงไหม (เผื่อลืมตั้งค่า)
+if channel_access_token is None:
+    print("Error: ไม่เจอ LINE_CHANNEL_ACCESS_TOKEN")
+
+line_bot_api = LineBotApi(channel_access_token)
+handler = WebhookHandler(channel_secret)
 
 app = Flask(__name__)
-
-line_bot_api = LineBotApi('PdSprDIfcLIofIi24fsuHfKTYY9UmTeONYjZI48Aon+EgkjhY08jCQfavabMo7n/DLz0Pm9y+xj11atjGWyHbQtY8jMCwSBxXqbzyJQcWTKVBAhwv54iKMTGs7/ol4fg69yx4lqyO/Qym+cz12210AdB04t89/1O/w1cDnyilFU=')
-handler = WebhookHandler('7adf7c45affc846f47c4a54782a40669')
 
 print("loading module YOLOv11...")
 model = YOLO('skin-cancer.pt') 
@@ -108,3 +121,4 @@ def handle_text_message(event):
 if __name__ == "__main__":
 
     app.run(port=5000)
+
