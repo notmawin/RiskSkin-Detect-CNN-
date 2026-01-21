@@ -1,0 +1,109 @@
+from flask import Flask, request, abort
+from linebot import LineBotApi, WebhookHandler
+from linebot.exceptions import InvalidSignatureError
+from linebot.models import MessageEvent, ImageMessage, TextSendMessage
+from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from ultralytics import YOLO
+from PIL import Image
+import io
+
+app = Flask(__name__)
+
+line_bot_api = LineBotApi('PdSprDIfcLIofIi24fsuHfKTYY9UmTeONYjZI48Aon+EgkjhY08jCQfavabMo7n/DLz0Pm9y+xj11atjGWyHbQtY8jMCwSBxXqbzyJQcWTKVBAhwv54iKMTGs7/ol4fg69yx4lqyO/Qym+cz12210AdB04t89/1O/w1cDnyilFU=')
+handler = WebhookHandler('7adf7c45affc846f47c4a54782a40669')
+
+print("loading module YOLOv11...")
+model = YOLO('skin-cancer.pt') 
+print("suscess!")
+
+@app.route("/callback", methods=['POST'])
+def callback():
+    signature = request.headers['X-Line-Signature']
+    body = request.get_data(as_text=True)
+    try:
+        handler.handle(body, signature)
+    except InvalidSignatureError:
+        abort(400)
+    return 'OK'
+
+@handler.add(MessageEvent, message=ImageMessage)
+def handle_image_message(event):
+    message_content = line_bot_api.get_message_content(event.message.id)
+    
+    # แปลงข้อมูลจาก LINE เป็นรูปภาพ (PIL Image)
+    image_bytes = io.BytesIO(message_content.content)
+    image = Image.open(image_bytes)
+
+    # --- 3. ให้ YOLO ทำนาย (Inference) ---
+    # conf=0.25 แปลว่า ต้องมั่นใจเกิน 25% ถึงจะนับ
+    results = model.predict(image, conf=0.25) 
+    
+    # --- 4. แกะกล่องของขวัญ (ผลลัพธ์) ---
+    result = results[0] # เอาผลลัพธ์รูปแรก (เราส่งทีละรูป)
+    
+    # เช็คว่าเจอไฝไหม? (Len ของ boxes > 0 แปลว่าเจอ)
+    if len(result.boxes) > 0:
+        # เอาอันที่มั่นใจที่สุด (อันแรก)
+        box = result.boxes[0]
+        
+        # ดูว่าเป็นคลาสไหน (0, 1, 2...)
+        class_id = int(box.cls[0])
+        
+        # แปลงเลขคลาสเป็นชื่อ (เช่น 0 -> Benign, 1 -> Malignant)
+        # model.names คือชื่อคลาสที่มันจำได้ตอนเทรน
+        class_name = model.names[class_id]
+        
+        # ค่าความมั่นใจ (0.0 - 1.0)
+        confidence = float(box.conf[0]) * 100
+
+        # --- 5. ส่งข้อความตอบกลับ ---
+        reply_text = f"📄 ผลการตรวจจับ: พบ {class_name}\n📊 ความมั่นใจ: {confidence:.2f}%"
+        
+        #อันตราย
+        if "akiec" in class_name or class_id == 0:
+             reply_text += "\n\n⚠️ คำแนะนำ: มีความเสี่ยงสูง ควรพบแพทย์\n\nActinic Keratoses (akiec) ระยะก่อนเป็นมะเร็ง หรือมะเร็งระยะเริ่มแรก คือพวกผิวหนังที่โดนแดดทำลายจนเซลล์เริ่มเพี้ยน ถือว่าเป็นกลุ่มเสี่ยงสูงต้องเฝ้าระวัง\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        elif "bcc" in class_name or class_id == 1:
+             reply_text += "\n\n⚠️ คำแนะนำ: มีความอันตราย ควรพบแพทย์\n\nBasal Cell Carcinoma (bcc) มะเร็งผิวหนังชนิดเบซอลเซลล์ เป็นมะเร็งผิวหนังที่พบบ่อยที่สุด มักเติบโตช้าและไม่กระจายไปที่อื่น แต่ต้องรักษาทันทีเพราะอาจทำลายเนื้อเยื่อรอบข้างได้ โดยมีสาเหตุหลักมาจากการได้รับรังสี UV มากเกินไป\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        elif "mel" in class_name or class_id == 4:
+             reply_text += "\n\n⚠️ คำแนะนำ: มีความอันตรายมาก ควรพบแพทย์\n\nMelanoma (มะเร็งผิวหนังชนิดเมลาโนมา) อันตรายถึงชีวิตควรรีบไปพบเเพทย์\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        #ปลอดภัย
+        elif "bkl" in class_name or class_id == 2:
+             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nBenign keratosis-like lesions คือ 'กระเนื้อ' หรือตุ่มเนื้อตามวัย\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        elif "df" in class_name or class_id == 3:
+             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nDermatofibroma ตุ่มเนื้อนูนแข็ง (เนื้องอกเส้นใย) ไม่ใช่มะเร็ง\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        elif "nv" in class_name or class_id == 5:
+             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\nMelanocytic nevi : คือ 'ไฝปกติ' (Mole) ที่คนทั่วไปมีกัน ปลอดภัยครับ\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+        elif "vasc" in class_name or class_id == 6:
+             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nVascular lesions พวกปานแดง หรือเส้นเลือดฝอยขยายตัว\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+
+    else:
+        reply_text = "❌ ไม่พบรอยโรคที่ชัดเจนในภาพ \n\n📃 วิธีเเก้ปัญหาเบื้องต้น :\n1. หามุมที่เเสงเพียงพอ ที่ทำให้เห็น 'ไฝ' หรือ 'จุดบนผิวหนัง' ชัดเจน\n2. ลองถ่ายใหม่ให้ชัดขึ้น หรือเข้าใกล้อีกนิด"
+
+    line_bot_api.reply_message(
+        event.reply_token,
+        TextSendMessage(text=reply_text)
+    )
+
+@handler.add(MessageEvent, message=TextMessage)
+def handle_text_message(event):
+    user_text = event.message.text.lower()
+
+    if user_text == "faq":
+        reply = (
+            "❓ [FAQ - คำถามที่พบบ่อย]\n\n"
+            "1. ระบบแม่นยำไหม?: AI ของเราใช้ YOLOv11 เทรนด้วยข้อมูลมาตรฐานแพทย์ แต่ควรใช้เพื่อการคัดกรองเบื้องต้นเท่านั้น\n\n"
+            "2. ถ่ายรูปยังไง?: ถ่ายให้ชัด แสงสว่างพอ และไฝอยู่กลางภาพ\n\n"
+            "3. แทนหมอได้ไหม?: ไม่ได้ หากเสี่ยงควรพบแพทย์ทันที"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+    elif user_text == "about":
+        reply = (
+            "🛡️ [เกี่ยวกับ AI Risk Skin]\n\n"
+            "โครงงานพัฒนาโดยนักเรียนชั้น ม.4 เพื่อช่วยคัดกรองมะเร็งผิวหนังเบื้องต้น\n"
+            "ใช้เทคโนโลยี YOLOv11 และชุดข้อมูล HAM10000\n\n"
+        )
+        line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
+
+if __name__ == "__main__":
+    app.run(port=5000)
