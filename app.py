@@ -28,6 +28,10 @@ app = Flask(__name__)
 print("loading module YOLOv11...")
 model = YOLO('skin-cancer.pt') 
 print("suscess!")
+# เพิ่ม Route สำหรับหน้าแรก (เพื่อให้ UptimeRobot เช็คได้)
+@app.route("/", methods=['GET'])
+def index():
+    return "Bot is Running Live!", 200
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -121,4 +125,5 @@ def handle_text_message(event):
 if __name__ == "__main__":
 
     app.run(port=5000)
+
 
