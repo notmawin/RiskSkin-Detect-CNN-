@@ -1,54 +1,29 @@
 from flask import Flask, request, abort
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
-from linebot.models import MessageEvent, ImageMessage, TextSendMessage
-from linebot.models import MessageEvent, TextMessage, TextSendMessage
+from linebot.models import MessageEvent, ImageMessage, TextSendMessage, TextMessage
 from ultralytics import YOLO
 from PIL import Image
 import io
 import os
-from dotenv import load_dotenv # เพิ่มบรรทัดนี้
+import gc
+from dotenv import load_dotenv
 
-# สั่งให้โหลดค่าจากไฟล์ .env (ถ้ามี)
+# 1. โหลดค่า Config
 load_dotenv()
-
-# ดึงค่าจากตัวแปรระบบ แทนการเขียนตรงๆ
 channel_access_token = os.getenv('LINE_CHANNEL_ACCESS_TOKEN')
 channel_secret = os.getenv('LINE_CHANNEL_SECRET')
-
-# เช็คว่าดึงค่ามาได้จริงไหม (เผื่อลืมตั้งค่า)
-if channel_access_token is None:
-    print("Error: ไม่เจอ LINE_CHANNEL_ACCESS_TOKEN")
 
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
 app = Flask(__name__)
 
-print("loading module YOLOv11...")
+# 2. โหลด Model (โหลดครั้งเดียวตอนเริ่ม)
+print("Loading module YOLOv11...")
 model = YOLO('skin-cancer.pt') 
-print("suscess!")
+print("Success!")
 
-results = model.predict(
-    source=image, 
-    imgsz=320,       # ลดขนาดภาพลงเหลือ 320 (ช่วยได้เยอะมาก!)
-    conf=0.25, 
-    save=False,      # ไม่ต้องเซฟรูปลงดิสก์
-    device='cpu'     # บังคับใช้ CPU
-)
-
-
-import gc # เพิ่มไว้บนสุด
-
-# ... ในช่วงที่ทำนายผลเสร็จแล้ว ...
-results = model.predict(image)
-# ... ส่งข้อความกลับเสร็จแล้ว ...
-
-# เพิ่ม 2 บรรทัดนี้ท้ายฟังก์ชัน handle_image_message
-del results
-gc.collect() 
-
-# เพิ่ม Route สำหรับหน้าแรก (เพื่อให้ UptimeRobot เช็คได้)
 @app.route("/", methods=['GET'])
 def index():
     return "Bot is Running Live!", 200
@@ -67,85 +42,68 @@ def callback():
 def handle_image_message(event):
     message_content = line_bot_api.get_message_content(event.message.id)
     
-    # แปลงข้อมูลจาก LINE เป็นรูปภาพ (PIL Image)
+    # แปลงรูปภาพ
     image_bytes = io.BytesIO(message_content.content)
     image = Image.open(image_bytes)
 
-    # --- 3. ให้ YOLO ทำนาย (Inference) ---
-    # conf=0.25 แปลว่า ต้องมั่นใจเกิน 25% ถึงจะนับ
-    results = model.predict(image, conf=0.25) 
+    # --- 3. วิเคราะห์ (ปรับแต่งเพื่อประหยัด RAM บน Render) ---
+    results = model.predict(
+        source=image, 
+        imgsz=320,       # ลดขนาดภาพเพื่อประหยัด RAM
+        conf=0.25, 
+        save=False, 
+        device='cpu'     # บังคับใช้ CPU เท่านั้น
+    )
     
-    # --- 4. แกะกล่องของขวัญ (ผลลัพธ์) ---
-    result = results[0] # เอาผลลัพธ์รูปแรก (เราส่งทีละรูป)
+    result = results[0]
     
-    # เช็คว่าเจอไฝไหม? (Len ของ boxes > 0 แปลว่าเจอ)
     if len(result.boxes) > 0:
-        # เอาอันที่มั่นใจที่สุด (อันแรก)
         box = result.boxes[0]
-        
-        # ดูว่าเป็นคลาสไหน (0, 1, 2...)
         class_id = int(box.cls[0])
-        
-        # แปลงเลขคลาสเป็นชื่อ (เช่น 0 -> Benign, 1 -> Malignant)
-        # model.names คือชื่อคลาสที่มันจำได้ตอนเทรน
         class_name = model.names[class_id]
-        
-        # ค่าความมั่นใจ (0.0 - 1.0)
         confidence = float(box.conf[0]) * 100
 
-        # --- 5. ส่งข้อความตอบกลับ ---
+        # เตรียมคำตอบ
         reply_text = f"📄 ผลการตรวจจับ: พบ {class_name}\n📊 ความมั่นใจ: {confidence:.2f}%"
         
-        #อันตราย
+        # เงื่อนไขแบ่งตามประเภท
         if "akiec" in class_name or class_id == 0:
-             reply_text += "\n\n⚠️ คำแนะนำ: มีความเสี่ยงสูง ควรพบแพทย์\n\nActinic Keratoses (akiec) ระยะก่อนเป็นมะเร็ง หรือมะเร็งระยะเริ่มแรก คือพวกผิวหนังที่โดนแดดทำลายจนเซลล์เริ่มเพี้ยน ถือว่าเป็นกลุ่มเสี่ยงสูงต้องเฝ้าระวัง\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n⚠️ คำแนะนำ: มีความเสี่ยงสูง ควรพบแพทย์\n\nActinic Keratoses (akiec) คือเซลล์ผิวหนังที่เริ่มผิดปกติจากแสงแดด ถือเป็นระยะก่อนเป็นมะเร็ง"
         elif "bcc" in class_name or class_id == 1:
-             reply_text += "\n\n⚠️ คำแนะนำ: มีความอันตราย ควรพบแพทย์\n\nBasal Cell Carcinoma (bcc) มะเร็งผิวหนังชนิดเบซอลเซลล์ เป็นมะเร็งผิวหนังที่พบบ่อยที่สุด มักเติบโตช้าและไม่กระจายไปที่อื่น แต่ต้องรักษาทันทีเพราะอาจทำลายเนื้อเยื่อรอบข้างได้ โดยมีสาเหตุหลักมาจากการได้รับรังสี UV มากเกินไป\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n⚠️ คำแนะนำ: มีอันตราย ควรพบแพทย์\n\nBasal Cell Carcinoma (bcc) มะเร็งผิวหนังที่พบบ่อยที่สุด มักโตช้าแต่ต้องรักษาเพื่อไม่ให้ทำลายเนื้อเยื่อรอบข้าง"
         elif "mel" in class_name or class_id == 4:
-             reply_text += "\n\n⚠️ คำแนะนำ: มีความอันตรายมาก ควรพบแพทย์\n\nMelanoma (มะเร็งผิวหนังชนิดเมลาโนมา) อันตรายถึงชีวิตควรรีบไปพบเเพทย์\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
-        #ปลอดภัย
+             reply_text += "\n\n🚨 คำแนะนำ: อันตรายมาก! ควรรีบพบแพทย์\n\nMelanoma คือมะเร็งผิวหนังชนิดที่รุนแรงที่สุด มีโอกาสกระจายตัวสูง"
         elif "bkl" in class_name or class_id == 2:
-             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nBenign keratosis-like lesions คือ 'กระเนื้อ' หรือตุ่มเนื้อตามวัย\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n✅ คำแนะนำ: ปกติ\n\nBenign keratosis-like lesions คือกระเนื้อตามวัย ไม่ใช่มะเร็ง"
         elif "df" in class_name or class_id == 3:
-             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nDermatofibroma ตุ่มเนื้อนูนแข็ง (เนื้องอกเส้นใย) ไม่ใช่มะเร็ง\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n✅ คำแนะนำ: ปกติ\n\nDermatofibroma คือตุ่มเนื้อนูนแข็ง ไม่ใช่มะเร็ง"
         elif "nv" in class_name or class_id == 5:
-             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\nMelanocytic nevi : คือ 'ไฝปกติ' (Mole) ที่คนทั่วไปมีกัน ปลอดภัยครับ\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n✅ คำแนะนำ: ปกติ\n\nMelanocytic nevi คือไฝปกติที่พบได้ทั่วไป"
         elif "vasc" in class_name or class_id == 6:
-             reply_text += "\n\n✅ คำแนะนำ: ดูปกติ\n\nVascular lesions พวกปานแดง หรือเส้นเลือดฝอยขยายตัว\n\n⛔ คำเตือน: ผลการวิเคราะห์นี้เป็นการคัดกรองเบื้องต้นโดยปัญญาประดิษฐ์เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยโดยแพทย์ผิวหนังได้ หากพบความผิดปกติหรือมีการเปลี่ยนแปลงชัดเจน โปรดพบแพทย์ทันที"
+             reply_text += "\n\n✅ คำแนะนำ: ปกติ\n\nVascular lesions คือปานแดงหรือเส้นเลือดฝอยขยายตัว"
+
+        reply_text += "\n\n⛔ คำเตือน: ผลนี้เป็นการคัดกรองเบื้องต้นโดย AI เท่านั้น ไม่สามารถใช้แทนการวินิจฉัยของแพทย์ได้"
 
     else:
-        reply_text = "❌ ไม่พบรอยโรคที่ชัดเจนในภาพ \n\n📃 วิธีเเก้ปัญหาเบื้องต้น :\n1. หามุมที่เเสงเพียงพอ ที่ทำให้เห็น 'ไฝ' หรือ 'จุดบนผิวหนัง' ชัดเจน\n2. ลองถ่ายใหม่ให้ชัดขึ้น หรือเข้าใกล้อีกนิด"
+        reply_text = "❌ ไม่พบรอยโรคที่ชัดเจน\n\nลองถ่ายใหม่ให้ชัดเจน แสงสว่างเพียงพอ และให้จุดที่สงสัยอยู่กลางภาพครับ"
 
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=reply_text)
-    )
+    line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply_text))
+    
+    # เคลียร์ RAM ทันทีหลังใช้เสร็จ (ป้องกัน SIGKILL)
+    del results
+    gc.collect()
 
 @handler.add(MessageEvent, message=TextMessage)
 def handle_text_message(event):
     user_text = event.message.text.lower()
-
     if user_text == "faq":
-        reply = (
-            "❓ [FAQ - คำถามที่พบบ่อย]\n\n"
-            "1. ระบบแม่นยำไหม?: AI ของเราใช้ YOLOv11 เทรนด้วยข้อมูลมาตรฐานแพทย์ แต่ควรใช้เพื่อการคัดกรองเบื้องต้นเท่านั้น\n\n"
-            "2. ถ่ายรูปยังไง?: ถ่ายให้ชัด แสงสว่างพอ และไฝอยู่กลางภาพ\n\n"
-            "3. แทนหมอได้ไหม?: ไม่ได้ หากเสี่ยงควรพบแพทย์ทันที"
-        )
+        reply = "❓ [FAQ]\n1. แม่นยำไหม? : เป็นการคัดกรองเบื้องต้นด้วย YOLOv11\n2. ถ่ายยังไง? : แสงชัด ไฝอยู่กลางภาพ"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
-
     elif user_text == "about":
-        reply = (
-            "🛡️ [เกี่ยวกับ AI Risk Skin]\n\n"
-            "โครงงานพัฒนาโดยนักเรียนชั้น ม.4 เพื่อช่วยคัดกรองมะเร็งผิวหนังเบื้องต้น\n"
-            "ใช้เทคโนโลยี YOLOv11 และชุดข้อมูล HAM10000\n\n"
-        )
+        reply = "🛡️ [DermaCheck AI]\nพัฒนาโดยนักเรียนชั้น ม.4 เพื่อคัดกรองมะเร็งผิวหนังเบื้องต้นด้วยชุดข้อมูล HAM10000"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 if __name__ == "__main__":
-
-    app.run(port=5000)
-
-
-
-
+    # การตั้งค่า Port สำหรับ Render (สำคัญมาก!)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port)
