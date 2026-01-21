@@ -29,6 +29,15 @@ print("loading module YOLOv11...")
 model = YOLO('skin-cancer.pt') 
 print("suscess!")
 
+results = model.predict(
+    source=image, 
+    imgsz=320,       # ลดขนาดภาพลงเหลือ 320 (ช่วยได้เยอะมาก!)
+    conf=0.25, 
+    save=False,      # ไม่ต้องเซฟรูปลงดิสก์
+    device='cpu'     # บังคับใช้ CPU
+)
+
+
 import gc # เพิ่มไว้บนสุด
 
 # ... ในช่วงที่ทำนายผลเสร็จแล้ว ...
@@ -136,6 +145,7 @@ def handle_text_message(event):
 if __name__ == "__main__":
 
     app.run(port=5000)
+
 
 
 
