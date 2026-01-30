@@ -52,7 +52,8 @@ def handle_image_message(event):
         imgsz=320,       # ลดขนาดภาพเพื่อประหยัด RAM
         conf=0.25, 
         save=False, 
-        device='cpu'     # บังคับใช้ CPU เท่านั้น
+        device='cpu',     # บังคับใช้ CPU เท่านั้น
+        augment=True,
     )
     
     result = results[0]
@@ -107,4 +108,5 @@ if __name__ == "__main__":
     # การตั้งค่า Port สำหรับ Render (สำคัญมาก!)
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+
 
