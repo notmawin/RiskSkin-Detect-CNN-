@@ -97,13 +97,14 @@ def handle_image_message(event):
 def handle_text_message(event):
     user_text = event.message.text.lower()
     if user_text == "faq":
-        reply = "❓ [FAQ]\n1. แม่นยำไหม? : เป็นการคัดกรองเบื้องต้นด้วย YOLOv11\n2. ถ่ายยังไง? : แสงชัด ไฝอยู่กลางภาพ"
+        reply = "❓ [FAQ]\n1. มีความแม่นยำมากเเค่ไหน? : เป็นการคัดกรองเบื้องต้นด้วยโมเดล YOLOv11 โดยมีอัตราความเเม่นยำอยู่ที่ 80% (อัตราความเเม่นยำอาจขึ้นอยู่กับความคมชัดของภาพถ่ายที่ผู้ใช้ส่งมา)\n2. ควรถ่ายภาพอย่างไร? : มีแสงมากเพียงพอ เเละ ถ่ายให้ไฝ หรือ รอยโรค อยู่ตรงกลางของภาพถ่าย"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
     elif user_text == "about":
-        reply = "🛡️ [DermaCheck AI]\nพัฒนาโดยนักเรียนชั้น ม.4 เพื่อคัดกรองมะเร็งผิวหนังเบื้องต้นด้วยชุดข้อมูล HAM10000"
+        reply = "🛡️ [RiskSkin AI]\nพัฒนาโดยนักเรียนชั้นมัธยมศึกษาปีที่ 4 เพื่อคัดกรองโรคผิวหนังเบื้องต้นด้วยชุดข้อมูล HAM10000"
         line_bot_api.reply_message(event.reply_token, TextSendMessage(text=reply))
 
 if __name__ == "__main__":
     # การตั้งค่า Port สำหรับ Render (สำคัญมาก!)
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
+
