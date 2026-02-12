@@ -8,6 +8,7 @@ import io
 import os
 import gc
 from dotenv import load_dotenv
+from fastapi import FastAPI
 
 # 1. โหลดค่า Config
 load_dotenv()
@@ -17,7 +18,11 @@ channel_secret = os.getenv('LINE_CHANNEL_SECRET')
 line_bot_api = LineBotApi(channel_access_token)
 handler = WebhookHandler(channel_secret)
 
-app = Flask(__name__)
+app = FastAPI()
+
+@app.get("/")
+def greet_json():
+    return {"Hello": "World!"}
 
 # 2. โหลด Model (โหลดครั้งเดียวตอนเริ่ม)
 print("Loading module YOLOv11...")
@@ -106,6 +111,7 @@ def handle_text_message(event):
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=7860)
+
 
 
 
