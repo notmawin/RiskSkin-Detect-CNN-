@@ -4,7 +4,6 @@ ultralytics
 python-dotenv
 gunicorn
 opencv-python-headless
-# เพิ่มบรรทัดนี้เพื่อบังคับใช้เฉพาะ CPU (ประหยัด RAM)
 --extra-index-url https://download.pytorch.org/whl/cpu
 torch
 torchvision
